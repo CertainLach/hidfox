@@ -1,0 +1,28 @@
+= HIDFox
+
+Firefox WebHID api support through webextension native messaging.
+
+== Demo
+
+video::yNaiQO94_sQ[youtube]
+
+Demo is outdated, the UI is much more polished now
+
+== Security
+
+Consider it dangerous and harmful for now. You can try to use it, still.
+
+== Performance
+
+None. The protocol is awful for now, do not expect it to transfer large amounts of data quickly.
+
+== Plans
+
+TODO: Switch to popups, once https://bugzilla.mozilla.org/show_bug.cgi?id=1799344 lands
+TODO: Use popups when available
+TODO: Settings
+TODO: Security
+
+== License
+
+Not decided yet, code is not yet completed. For now consider this code source-available, and do not try to use it.

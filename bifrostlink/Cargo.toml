@@ -1,0 +1,17 @@
+[package]
+name = "bifrostlink"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1.68"
+bytes = "1.4.0"
+derivative = "2.2.0"
+futures = "0.3.28"
+serde = { version = "1.0.163", features = ["derive"] }
+serde_json = "1.0.96"
+tokio = { version = "1.28.2", features = ["full"] }
+tracing = "0.1.37"
+uuid = { version = "1.3.3", features = ["v4"] }

@@ -1,27 +1,135 @@
 = HIDFox
 
-Firefox WebHID api support through webextension native messaging.
+Firefox WebHID API support through webextension native messaging.
 
 == Demo
 
-video::yNaiQO94_sQ[youtube]
+:paramV: yNaiQO94_sQ
+include::docs/youtube.adoc[]
 
-Demo is outdated, the UI is much more polished now
+Demo is outdated, the UI is much more polished now.
 
 == Security
 
 Consider it dangerous and harmful for now. You can try to use it, still.
 
+=== Current concerns:
+
+Page has access to the Hid/HidDevice objects::
+Sensitive information here is protected by private fields (#name) and symbols.
+
+Is this good enough? Maybe all of the sensitive objects should be passed as a closure?
+Anyway, even injected script should only access non-sensitive information.
+
+For devices, ids hash is used, and this may be used for unique user identification (If user has allowed hid access to the page),
+but not for system information disclosure
+
+Page may intercept/inject WindowMessageChannel data::
+Uh oh. Content script should block any AddForwarded calls from the injected script, and should not send any sensitive
+info (See the first concern).
+
+User error::
+Some considerations are taken into account, there should be an ability to not remember device access, there is an delay
+before allowing device access button activates, to prevent misclicks.
+
+In case of device not found - there is no immediate rejection, user should reject device access themselves, so the page
+may not identify user by querying accessible devices.
+
 == Performance
 
 None. The protocol is awful for now, do not expect it to transfer large amounts of data quickly.
 
+Every packet is serialized to json, and has at least 3 hops:
+
+* Injected -> Content (No serialization/deserialization. Message object is passed between 2 isolates)
+* Content -> Background (Quick serialization)
+* Background -> Native (JSON serialization + JSON deserialization)
+
+Every byte array is serialized as JSON array. At least base64 should be used.
+
+Binary format is not possible, as background<->native communication may only use utf8. Maybe implement base127?
+
+HID:
+
+[mermaid, target=docs/hid, format=png]
+....
+sequenceDiagram
+    participant I as Injected
+    participant N as Native
+    participant B as Background
+    participant P as Popup
+    actor U as User
+
+    I->>+B: OpenNative
+    note over B: Spawns native
+    B->>+N: OpenFromInject
+    N->>-B: [response]
+    B->>-I: [response]
+
+    I->>+N: SubscribeHid
+    N->>-I: [response]
+
+    par Hid device watcher
+        loop Processing
+            note over N: Refreshes list
+
+            N->>+B: StorageGet(allowed)
+            B->>-N: [response]
+
+            N-)I: AddedDevice
+            N-)I: RemovedDevice
+
+            break Force refresh
+                I->>+N: PollRefresh
+                N->>-I: [response]
+            end
+        end
+    and Device access request
+        I->>+N: RequestDevice
+        N->>+B: OpenPopup
+        %% Todo: open it from user click handler. Or wait for page actions to start behave correctly?
+        note over B: Opens popup
+        P-)U: Start displaying 
+        B->>-N: [response]
+
+        N->>+P: RequestAccess
+        P->>+U: Requested device list
+        alt Allows
+            U->>P: [allows]
+            P->>N: [response]
+            N->>+B: StorageSet(add allowed)
+            B->>-N: [response]
+        else Disallows
+            U->>-P: [disallows]
+            P->>-N: [response]
+        end
+        N->>-I: [response]
+    end
+....
+
+Hid device:
+
+[mermaid, target=docs/hid-device, format=png]
+....
+sequenceDiagram
+....
+
 == Plans
 
 TODO: Switch to popups, once https://bugzilla.mozilla.org/show_bug.cgi?id=1799344 lands
-TODO: Use popups when available
+
+TODO: Use popups when available in case of about:config flag set
+
 TODO: Settings
+
 TODO: Security
+
+TODO: Do not remember transient device ids
+
+TODO: Ability to disable extension by default, whitelisting pages to have HID access.
+
+TODO: Make it possible to support third-party extensions, I.e injection into metamask. Probably requires metamask
+extension support?
 
 == License
 

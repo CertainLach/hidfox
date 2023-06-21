@@ -1,0 +1,7 @@
+ifdef::env-github[]
+image:https://img.youtube.com/vi/{paramV}/maxresdefault.jpg[link=https://youtu.be/{paramV}]
+endif::[]
+
+ifndef::env-github[]
+video::{paramV}[youtube]
+endif::[]

@@ -4,8 +4,15 @@ Firefox WebHID API support through webextension native messaging.
 
 == Demo
 
-:paramV: yNaiQO94_sQ
+:paramV: 
 include::docs/youtube.adoc[]
+ifdef::env-github[]
+image:https://img.youtube.com/vi/yNaiQO94_sQ/maxresdefault.jpg[link=https://youtu.be/yNaiQO94_sQ]
+endif::[]
+
+ifndef::env-github[]
+video::yNaiQO94_sQ[youtube]
+endif::[]
 
 Demo is outdated, the UI is much more polished now.
 
@@ -51,6 +58,11 @@ Binary format is not possible, as background<->native communication may only use
 
 HID:
 
+ifdef::env-github[]
+image:docs/hid.png[]
+endif::[]
+
+ifndef::env-github[]
 [mermaid, target=docs/hid, format=png]
 ....
 sequenceDiagram
@@ -106,13 +118,20 @@ sequenceDiagram
         N->>-I: [response]
     end
 ....
+endif::[]
 
 Hid device:
 
+ifdef::env-github[]
+image:docs/hid-device.png[]
+endif::[]
+
+ifndef::env-github[]
 [mermaid, target=docs/hid-device, format=png]
 ....
 sequenceDiagram
 ....
+endif::[]
 
 == Plans
 

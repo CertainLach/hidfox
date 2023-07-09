@@ -3,3 +3,6 @@
 *.json
 # Generated from .ts
 *.js
+!/addon/webpack.config.js
+/addon-dist
+/.asciidoctor

@@ -256,10 +256,6 @@ class RouteSet {
 	}
 }
 
-type GetAddress = {};
-type GetAddressR = {
-	address: Address,
-};
 type AddForwarded = {
 	to: Address,
 	rtt: Rtt,

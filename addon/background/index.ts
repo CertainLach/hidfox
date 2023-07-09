@@ -1,9 +1,8 @@
-import { EXTENSION_ID } from "./config";
-import { PortLike, generateId } from "./inpage";
-import { Address } from "./packet";
-import { PortRpc } from "./rpc";
-
-console.log('Hello from background!');
+import { EXTENSION_ID, EXTENSION_NAME } from "../config";
+import { PortLike, generateId } from "../inpage";
+import { Address } from "../packet";
+import { PortRpc } from "../rpc";
+import { registerStorageRpc } from "../shared/rpcStorage";
 
 let popupListeners = new Map<string, (res: PortLike) => void>();
 const popupListener = (popupPort: browser.runtime.Port) => {
@@ -19,30 +18,12 @@ const popupListener = (popupPort: browser.runtime.Port) => {
 	}
 };
 
-type StorageSet = { key: string, value: string };
-type StorageGet = { key: string };
-type StorageGetR = { value?: string };
-type StorageRemove = { key: string };
 type OpenNative = {};
-
-browser.runtime.onConnect.addListener(contentPort => {
-	if (contentPort.name === 'popup') return popupListener(contentPort);
-
+const contentListener = (contentPort: browser.runtime.Port) => {
+	console.log(contentPort);
 	const rpc = new PortRpc(Address.Background);
+	registerStorageRpc(rpc);
 
-	rpc.addRequestListener<StorageSet, {}>('StorageSet', async (_sender, { key, value }) => {
-		localStorage.setItem(key, value);
-		return {};
-	});
-	rpc.addRequestListener<StorageGet, StorageGetR>('StorageGet', async (_sender, { key }) => {
-		return {
-			value: localStorage.getItem(key) ?? undefined,
-		};
-	});
-	rpc.addRequestListener<StorageRemove, {}>('StorageRemove', async (_sender, { key }) => {
-		localStorage.removeItem(key);
-		return {};
-	});
 	rpc.addRequestListener<OpenNative, {}>('OpenNative', async (_sender, { }) => {
 		const url = contentPort.sender?.url;
 		rpc.addDirect(Address.Native, browser.runtime.connectNative('hidfox'), 50);
@@ -61,21 +42,30 @@ browser.runtime.onConnect.addListener(contentPort => {
 			popupListeners.delete(idHash);
 			clearTimeout(windowTimeout);
 		})
-		const window = await browser.windows.create({
+		const _window = await browser.windows.create({
 			url: browser.runtime.getURL('popup.html') + idHash,
 			type: 'popup',
 			height: 600,
 			width: 400,
 		}).catch(windowFailed);
 		windowTimeout = setTimeout(() => windowFailed(new Error('opening timeout')), 5000);
-		console.log('wait port');
 		const port: PortLike = await windowPort;
-		console.log('add port');
 		rpc.addDirect(Address.Popup, port, 50);
-		console.log('popup opened');
 		return {};
-	})
+	});
 
 	rpc.addDirect(Address.Content, contentPort, 50);
+
+	const tabId = contentPort.sender?.tab?.id;
+	if (tabId) {
+		browser.pageAction.show(tabId);
+		browser.pageAction.setTitle({ tabId, title: `${EXTENSION_NAME} - Page uses WebHID` });
+	}
+}
+
+browser.runtime.onConnect.addListener(port => {
+	if (port.name === 'popup') return popupListener(port);
+	if (port.name === 'content') return contentListener(port);
+	throw new Error('unknown connection source')
 });
 

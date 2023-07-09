@@ -19,7 +19,8 @@ use serde_with::{serde_as, Bytes};
 use tokio::{select, time};
 use url::Url;
 
-mod route;
+mod storage;
+mod hidroot;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Address {
@@ -115,10 +116,6 @@ async fn main() {
 		.unwrap();
 
 	rpc.add_direct(Address::Background, port, Rtt(50));
-
-	eprintln!("trying storage get");
-	let v = storage_get::<String>(&rpc, "helo").await;
-	eprintln!("storage get result: {v:?}");
 
 	select! {
 		Some(connect) = connect_hid.next() => {
@@ -245,192 +242,6 @@ fn open_device_by_id(hid: &mut HidApi, id: &DeviceId) -> HidResult<HidDevice> {
 	Ok(dev)
 }
 //
-#[derive(Deserialize, Serialize, Debug)]
-struct Filter {
-	vendor_id: Option<u16>,
-	product_id: Option<u16>,
-	usage: Option<u16>,
-	usage_page: Option<u16>,
-}
-
-#[derive(Deserialize)]
-struct RequestDevice {
-	filters: Vec<Filter>,
-}
-request!(RequestDevice => NoopResponse);
-#[derive(Serialize, Debug)]
-struct RequestedDevice {
-	id: String,
-	vid: u16,
-	pid: u16,
-	product_name: String,
-	serial: String,
-}
-
-#[derive(Serialize)]
-struct RequestAccess {
-	devices: Vec<RequestedDevice>,
-}
-#[derive(Deserialize)]
-struct RequestAccessResult {
-	approved: Vec<String>,
-}
-request!(RequestAccess => RequestAccessResult);
-
-#[derive(Serialize, Deserialize)]
-struct RemovedDevice {
-	id: String,
-}
-notification!(RemovedDevice);
-#[derive(Serialize, Deserialize)]
-struct AddedDevice {
-	id: String,
-	info: DeviceInfo,
-}
-notification!(AddedDevice);
-
-#[derive(Deserialize, Serialize)]
-struct NoopResponse {}
-
-#[derive(Serialize)]
-struct OpenPopup {}
-request!(OpenPopup => NoopResponse);
-
-/// This request will be completed after device refresh
-#[derive(Deserialize)]
-struct PollRefresh {}
-request!(PollRefresh => NoopResponse);
-//
-async fn hid(mut reader: Rpc, url: Url, req: PollingRequest<SubscribeHid, Address>) {
-	const DEVICE_REFRESH_POLLING_INTERVAL: Duration = Duration::from_millis(400);
-
-	let mut hid = HidApi::new().expect("hidapi init");
-
-	let mut device_list = <BTreeSet<DeviceId>>::new();
-
-	eprintln!("registered pollrefresh");
-	let mut request_device = reader
-		.register_polling_request_handler::<RequestDevice>()
-		.unwrap();
-	let mut poll_refresh = reader
-		.register_polling_request_handler::<PollRefresh>()
-		.unwrap();
-
-	req.respond_ok(NoopResponse {});
-
-	loop {
-		eprintln!("hid watcher tick");
-		// TODO: Watch for changes
-		let persisted = get_allowed_persistent(&reader, &url).await;
-
-		let new_device_list: BTreeSet<DeviceId> =
-			list_allowed_devices(&mut hid, &persisted).collect();
-		for removed in device_list.difference(&new_device_list) {
-			reader.notify(Address::Injected, &RemovedDevice { id: removed.id() });
-		}
-		for added in new_device_list.difference(&device_list) {
-			reader.notify(
-				Address::Injected,
-				&AddedDevice {
-					id: added.id(),
-					info: added.info(),
-				},
-			);
-		}
-		device_list = new_device_list;
-
-		// TODO: block-in-place doesn't work with one thread
-		hid = tokio::task::spawn_blocking(move || {
-			if let Err(e) = hid.refresh_devices() {
-				eprintln!("failed to refresh devices: {e}");
-			}
-			hid
-		})
-		.await
-		.expect("should not fail");
-		// TODO: Events
-		let mut delay = pin!(time::sleep(DEVICE_REFRESH_POLLING_INTERVAL));
-		'process_requests: loop {
-			select! {
-				Some(req) = request_device.next() => {
-					let RequestDevice {filters} = req.data();
-					let mut proposed_devices = HashMap::new();
-					let devices = hid.device_list().filter(|d| {
-						filters.is_empty() || filters.iter().any(|f| {
-							if let Some(vendor_id) = f.vendor_id {
-								if vendor_id != d.vendor_id() {
-									return false;
-								}
-							}
-							if let Some(product_id) = f.product_id {
-								if product_id != d.product_id() {
-									return false;
-								}
-							}
-							if let Some(usage_page) = f.usage_page {
-								if usage_page != d.usage_page() {
-									return false;
-								}
-							}
-							if let Some(usage) = f.usage {
-								if usage != d.usage() {
-									return false;
-								}
-							}
-							true
-
-						})
-					}).filter_map(|d| {
-						let devid = DeviceId::from_info(d);
-						let id = devid.id();
-						proposed_devices.insert(id.clone(), devid.persistent()?);
-						Some(RequestedDevice {
-							id,
-							vid: d.vendor_id(),
-							pid: d.product_id(),
-							product_name: d.product_string().unwrap_or("<unknown>").to_owned(),
-							serial: d.serial_number().unwrap_or("<unknown>").to_string(),
-						})
-					}).collect::<Vec<_>>();
-					eprintln!("requested device");
-
-					if let Err(_e) = reader.request(Address::Background, &OpenPopup {}).await {
-						req.respond_err("failed to open popup");
-						continue;
-					};
-					eprintln!("open popup");
-					if let Err(_) = reader.wait_for_connection_to(Address::Popup).await {
-						req.respond_err("failed to open popup");
-						continue;
-					};
-					let list = match reader.request(Address::Popup, &RequestAccess {devices}).await {
-						Ok(l) => l,
-						Err(_) => {
-							req.respond_err("popup is ignoring us");
-							continue;
-						}
-					};
-
-					let list = list.approved.into_iter().filter_map(|d| proposed_devices.remove(&d)).collect::<Vec<_>>();
-					let mut allowed = get_allowed_persistent(&reader, &url).await;
-					// TODO: Deduplicate
-					allowed.extend(list);
-					set_allowed_persistent(&reader, &url, allowed).await;
-
-					//reader.request(Address::Popup);
-					// notify(&PopupRequest::RequestAccess { devices }, Address::Popup);
-					req.respond_ok(NoopResponse{});
-				}
-				Some(req) = poll_refresh.next() => {
-					req.respond_ok(NoopResponse{});
-				}
-				() = &mut delay => {
-					break 'process_requests;
-				}
-			}
-		}
-	}
-}
 #[serde_as]
 #[derive(Serialize, Deserialize)]
 struct Report {
@@ -521,13 +332,25 @@ async fn device(mut reader: Rpc, url: Url, id: String) {
 					let id = out[0];
 					let mut data = [0u8; 64];
 					data.copy_from_slice(&out[1..size]);
-					reader.notify(Address::Injected, &Report { id, data:data.to_vec() });
+					reader.notify(
+						Address::Injected,
+						&Report {
+							id,
+							data: data.to_vec(),
+						},
+					);
 				}
 				// No report id
 				64 => {
 					let mut data = [0u8; 64];
 					data.copy_from_slice(&out[0..size]);
-					reader.notify(Address::Injected, &Report { id: 0, data: data.to_vec() });
+					reader.notify(
+						Address::Injected,
+						&Report {
+							id: 0,
+							data: data.to_vec(),
+						},
+					);
 				}
 				_ => unreachable!("report size should be either 64 or 65 bytes"),
 			}
@@ -577,73 +400,3 @@ async fn device(mut reader: Rpc, url: Url, id: String) {
 	}
 }
 
-async fn storage_get<T: DeserializeOwned>(r: &Rpc, key: &str) -> Option<T> {
-	#[derive(Serialize, Deserialize)]
-	struct StorageGet {
-		key: String,
-	}
-	request!(StorageGet => StorageGetR);
-	#[derive(Serialize, Deserialize)]
-	struct StorageGetR {
-		value: Option<String>,
-	}
-
-	let result = match r
-		.request(
-			Address::Background,
-			&StorageGet {
-				key: key.to_owned(),
-			},
-		)
-		.await
-	{
-		Ok(v) => v,
-		Err(e) => {
-			eprintln!("storage request failed: {e:?}");
-			return None;
-		}
-	};
-
-	let value = result.value?;
-
-	match serde_json::from_str(&value) {
-		Ok(v) => return Some(v),
-		Err(e) => {
-			eprintln!("storage decode failed: {e}");
-			return None;
-		}
-	}
-}
-async fn storage_remove(r: &mut Rpc, key: &str) {
-	#[derive(Serialize)]
-	struct StorageRemove {
-		key: String,
-	}
-	request!(StorageRemove => NoopResponse);
-	let _ = r
-		.request(
-			Address::Background,
-			&StorageRemove {
-				key: key.to_owned(),
-			},
-		)
-		.await;
-}
-async fn storage_set<T: Serialize>(r: &Rpc, key: &str, value: &T) {
-	#[derive(Serialize)]
-	struct StorageSet {
-		key: String,
-		value: String,
-	}
-	request!(StorageSet => NoopResponse);
-	let serialized = serde_json::to_string(value).expect("serialize failed");
-	let _ = r
-		.request(
-			Address::Background,
-			&StorageSet {
-				key: key.to_owned(),
-				value: serialized,
-			},
-		)
-		.await;
-}

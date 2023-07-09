@@ -1,3 +1,5 @@
+// Port polyfill for injected<->content communication
+
 import { BasicListenerList, ListenerListLike, callListeners } from "./listener";
 
 type InPagePacket = {
@@ -22,8 +24,8 @@ export function generateId() {
 const handleIncomingMessage = Symbol("handle incoming message");
 const ports = Symbol("ports");
 export class WindowMessageChannel {
-	[ports] = new Map<string, WindowMessagePort<unknown>>();
-	onConnect = new BasicListenerList<WindowMessagePort<unknown>>('onConnect');
+	[ports] = new Map<string, WindowMessagePort>();
+	onConnect = new BasicListenerList<WindowMessagePort>('onConnect');
 	#messageListener: (e: MessageEvent) => void;
 	#thisRecipient: string;
 	constructor(
@@ -57,10 +59,10 @@ export class WindowMessageChannel {
 		this.#messageListener = messageListener;
 		window.addEventListener('message', messageListener);
 	}
-	connect<E>(name: string, recipient: string): WindowMessagePort<E> {
+	connect(name: string, recipient: string): WindowMessagePort {
 		this.ensureConnected();
 		const newId = generateId();
-		const port = new WindowMessagePort<E>(this, newId, recipient, true);
+		const port = new WindowMessagePort(this, newId, recipient, true);
 		const msg = { [this.identifier]: { id: newId, request: 'openPort', name, initiator: this.#thisRecipient, recipient } as InPagePacket };
 		window.postMessage(msg);
 		return port;
@@ -91,14 +93,14 @@ const isOutgoing = Symbol("is outgoing");
  * Unfortunately, there is no port api for injected<->content communication, and this class implements such
  * communication over window.sendMessage()
  */
-export class WindowMessagePort<E> {
+export class WindowMessagePort {
 	#channel: WindowMessageChannel;
 	#id: string;
 	#recipient: string;
 	#connected = true;
 	[isOutgoing]: boolean;
 
-	onMessage = new BasicListenerList<E>('onMessage');
+	onMessage = new BasicListenerList<any>('onMessage');
 	onDisconnect = new BasicListenerList<DisconnectEvent>('onDisconnect');
 	constructor(channel: WindowMessageChannel, id: string, recipient: string, outgoing: boolean) {
 		this.#channel = channel;
@@ -106,9 +108,9 @@ export class WindowMessagePort<E> {
 		this.#recipient = recipient;
 		this[isOutgoing] = outgoing
 		console.log('registered port', id);
-		channel[ports].set(this.#id, this as WindowMessagePort<unknown>);
+		channel[ports].set(this.#id, this as WindowMessagePort);
 	}
-	postMessage(data: E) {
+	postMessage(data: any) {
 		this.#send('message', data);
 	}
 	[handleIncomingMessage](p: InPagePacket) {

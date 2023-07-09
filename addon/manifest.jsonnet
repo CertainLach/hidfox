@@ -1,11 +1,13 @@
+local baseIcons = {
+	[''+size]: 'icons/icon%d.png' % size,
+	for size in [256, 64, 48, 32, 16]
+};
+
 {
 	manifest_version: 2,
 	name: 'HidFox (Beta)',
 	version: '1.2',
-	icons: {
-		[''+size]: 'icons/icon%d.png' % size,
-		for size in [256, 64, 48, 32, 16]
-	},
+	icons: baseIcons,
 
 	description: 'WebHID shim for Firefox',
 	content_scripts: [
@@ -21,11 +23,10 @@
 		persistent: true,
 		// type: 'module',
 	},
-	// page_action: {
-	// 	browser_style: true,
-	// 	default_title: 'WebHID Firefox',
-	// 	default_popup: 'popup.html',
-	// },
+	page_action: {
+		default_icon: baseIcons,
+		default_area: 'tabstrip',
+	},
 	web_accessible_resources: ['injected.js', 'popup.js'],
 	permissions: [
 		'nativeMessaging',

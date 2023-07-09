@@ -52,8 +52,10 @@
             nodePackages_latest.web-ext
             nodePackages_latest.typescript
             nodePackages_latest.typescript-language-server
+            nodePackages_latest.mermaid-cli
             nodePackages_latest.yarn
             nodejs_latest
+            asciidoctor-with-extensions
             udev
             pkg-config
           ];

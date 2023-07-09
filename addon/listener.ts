@@ -102,3 +102,31 @@ export class CancellationError extends Error {
 		this.name = 'CancellationError';
 	}
 }
+
+export const defineEvent = Symbol('defineEvent');
+export class BasicEventTarget {
+	#handlers = new Map<string, BasicListenerList<unknown>>();
+	[defineEvent](name: string, list: BasicListenerList<unknown>) {
+		let propertyListener: any = null;
+		Object.defineProperties(this, {
+			[`on${name}`]: {
+				get: () => propertyListener,
+				set(v) {
+					if (typeof propertyListener === 'function') list.removeListener(propertyListener);
+					if (typeof v === 'function') list.addListener(v);
+					propertyListener = v;
+				},
+			}
+		})
+	}
+	addEventListener(name: string, handler: (event: unknown) => void, _opts = {}) {
+		const list = this.#handlers.get(name);
+		if (!list) return;
+		list.addListener(handler);
+	}
+	removeEventListener(name: string, handler: (event: unknown) => void, _opts = {}) {
+		const list = this.#handlers.get(name);
+		if (!list) return;
+		list.removeListener(handler);
+	}
+}

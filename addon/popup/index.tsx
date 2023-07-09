@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { PortRpc } from './rpc';
-import { Address } from './packet';
-import { generateId } from './inpage';
-import { Alert, Button, Card, Checkbox, ConfigProvider, Layout, List, Space, Typography, theme } from 'antd';
+import { PortRpc } from '../rpc';
+import { Address } from '../packet';
+import { generateId } from '../inpage';
+import { Alert, Button, Card, Checkbox, ConfigProvider, Dropdown, Layout, List, Space, Typography, theme } from 'antd';
 import { Content, Header } from 'antd/es/layout/layout';
 import 'antd/dist/reset.css';
 const { Text, Title } = Typography;
@@ -17,6 +17,7 @@ type RequestedDevice = {
 	pid: number,
 	product_name: string,
 	serial: string,
+	persistent: boolean,
 };
 function Device(dev: RequestedDevice & { choosen: boolean, onChange: (v: boolean) => void }) {
 	return <List.Item style={{ width: '100%' }}>
@@ -29,7 +30,7 @@ function Device(dev: RequestedDevice & { choosen: boolean, onChange: (v: boolean
 				</Checkbox>
 			}
 			description={
-				<Text><b>vid/pid:</b> {dev.vid.toString(16).padStart(4, '0')}/{dev.pid.toString(16).padStart(4, '0')}</Text>
+				<Text><b>vid/pid:</b> {dev.vid.toString(16).padStart(4, '0')}/{dev.pid.toString(16).padStart(4, '0')} {dev.persistent ? null : <b>Can't remember!</b>}</Text>
 			}
 
 		/>
@@ -46,9 +47,13 @@ type RequestAccessResult = {
 };
 
 // TODO: Expiration
-function Request(r: RequestAccess & { onComplete: (devs: string[]) => void }) {
+function Request(r: RequestAccess & { onComplete: (devs: string[], duration: number | null) => void }) {
 	const [chosen, setChosen] = useState(new Set<string>());
+	const [ikwid, setIkwid] = useState(false);
+
 	return <Card title="Device access request" style={{ width: '100%' }}>
+		<Alert message='Make sure you trust this website; HID access may allow site to access your input devices, including muting/unmuting of the microphone' type="warning" showIcon />
+
 		<Space direction='vertical' style={{ width: '100%' }}>
 			{r.devices.length === 0 ? <Alert message="No supported devices found" type="error" showIcon /> : <List bordered>
 
@@ -62,26 +67,46 @@ function Request(r: RequestAccess & { onComplete: (devs: string[]) => void }) {
 
 
 			<Space>
-				<Checkbox checked disabled>Remeber for this site</Checkbox>
+				<Checkbox checked={ikwid} onChange={e => setIkwid(e.target.checked)}>I know what I'm doing</Checkbox>
 			</Space>
 			<Space.Compact block>
-				<AcceptBtn onClick={() => r.onComplete(Array.from(chosen))} />
-				<Button type="default" onClick={() => r.onComplete([])}>Reject</Button>
+				<AcceptBtn blocked={!ikwid || chosen.size === 0} onClick={(v: number | null) => r.onComplete(Array.from(chosen), v)} />
+				<Button type="default" onClick={() => r.onComplete([], 0)}>Reject</Button>
 			</Space.Compact>
 		</Space>
 	</Card>
 }
-function AcceptBtn(r: { onClick: () => void }) {
+function AcceptBtn(r: { blocked: boolean, onClick: (v: number | null) => void }) {
 	const [time, setTime] = useState(5);
 	let timeout: any;
 	useEffect(() => {
 		timeout = setInterval(() => setTime(t => t - 1), 1000);
 		return () => clearInterval(timeout);
-	}, []);
+	}, [r.blocked]);
 	return <>
-		<Button type="primary" danger disabled={time > 0} onClick={r.onClick}>
-			Accept {time > 0 ? ` (Wait ${time} seconds)` : null}
-		</Button>
+		{r.blocked ? <Button type="primary" danger disabled>
+			Allow
+		</Button> : time > 0 ? <Button type="primary" danger disabled>
+			Wait {time}s...
+		</Button> : <Dropdown.Button type="primary" danger menu={{
+			items: [
+				{
+					key: '' + (1 * 1000 * 60 * 60),
+					label: 'Allow for 1 hour'
+				},
+				{
+					key: '' + (10 * 1000 * 60 * 60),
+					label: 'Allow for 10 hours'
+				},
+				{
+					key: 'null',
+					label: 'Always allow',
+				},
+			],
+			onClick: (v) => r.onClick(JSON.parse(v.key))
+		}} onClick={() => r.onClick(0)}>
+			Allow this time
+		</Dropdown.Button>}
 	</>
 }
 
@@ -120,7 +145,7 @@ function Root() {
 	}, [])
 
 	return <ConfigProvider theme={{ algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm }}>
-		<Layout style={{width:'100%', height:'100%'}}>
+		<Layout style={{ width: '100%', height: '100%' }}>
 			<Header>
 				Firefox WebHID
 			</Header>

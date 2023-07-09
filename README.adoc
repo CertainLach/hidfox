@@ -59,11 +59,11 @@ Binary format is not possible, as background<->native communication may only use
 HID:
 
 ifdef::env-github[]
-image:docs/hid.png[]
+[source,mermaid]
 endif::[]
-
 ifndef::env-github[]
 [mermaid, target=docs/hid, format=png]
+endif::[]
 ....
 sequenceDiagram
     participant I as Injected
@@ -118,20 +118,18 @@ sequenceDiagram
         N->>-I: [response]
     end
 ....
-endif::[]
 
 Hid device:
 
 ifdef::env-github[]
-image:docs/hid-device.png[]
+[source,mermaid]
 endif::[]
-
 ifndef::env-github[]
 [mermaid, target=docs/hid-device, format=png]
+endif::[]
 ....
 sequenceDiagram
 ....
-endif::[]
 
 == Plans
 
